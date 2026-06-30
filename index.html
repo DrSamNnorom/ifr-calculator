@@ -71,6 +71,7 @@ header.app{background:linear-gradient(180deg,#fff,#fbfdff);border-bottom:1px sol
 .banner.ok{background:#eef9ec;border:1px solid #bfe2b8;color:var(--wic-green-d)}
 .banner.warn{background:#fff7ec;border:1px solid #f0cf9b;color:#9a5b00}
 .banner.info{background:#eef7fc;border:1px solid #bcdcef;color:var(--hd)}
+.banner.bad{background:#fdeeee;border:1px solid #e3a3a3;color:#9a2424}
 .banner .big{font-size:22px;flex:none}
 /* tables / details */
 details{margin-top:14px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
@@ -207,6 +208,7 @@ const isSofProduct=u=>{const p=PMAP[u];return !!(p&&p.form==='READY TO USE'&&p.s
 let midRows=[], byUpc={}, period='', perLabel='';
 let summaryRows=[], grand={units:0,amount:0}, grandRaw={units:0,amount:0};
 let sofMead={}, sofCtl={}, stateSof={}, sofImported=false;
+let sofPeriod='', sofMismatch=false;
 let summaryData=null, parseStats={total:0,parsed:0,malformed:0};
 let fNames={mid:'',sum:'',sof:''};
 
@@ -215,6 +217,7 @@ const fmtN=n=>Math.round(n).toLocaleString('en-US');
 const fmt$=n=>'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtDate=s=>s&&s.length===8?`${s.slice(4,6)}/${s.slice(6,8)}/${s.slice(0,4)}`:'';
 const MON=['','January','February','March','April','May','June','July','August','September','October','November','December'];
+const fmtPer=p=>(p&&p.length===6)?MON[parseInt(p.slice(4,6))]+' '+p.slice(0,4):'';
 const monName=()=>period?MON[parseInt(period.slice(4,6))]:'';
 const yr4=()=>period?period.slice(0,4):'';
 const xlsxName=()=>'ENFAMIL_Rebates_'+(monName()||'Month')+'_'+(yr4()||'YYYY')+'.xlsx';
@@ -308,8 +311,31 @@ function parseSummary(wb){
   });
   out.totalAmount=+out.totalAmount.toFixed(2);return out;
 }
+function detectPeriod(wb){
+  const M={january:'01',february:'02',march:'03',april:'04',may:'05',june:'06',july:'07',august:'08',september:'09',october:'10',november:'11',december:'12'};
+  for(const name of wb.SheetNames){
+    const A=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,raw:true});
+    for(const row of A){ for(const c of row){ if(typeof c==='string'){
+      const m=c.toLowerCase().match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(20\d{2})/);
+      if(m) return m[2]+M[m[1]];
+      const m2=c.match(/\b(20\d{2})(0[1-9]|1[0-2])\b/); if(m2) return m2[1]+m2[2];
+    }}}
+  }
+  /* fallback: dominant redeemed month from the detail date column */
+  const ws=wb.Sheets[wb.SheetNames.find(n=>/detail/i.test(n))||wb.SheetNames[wb.SheetNames.length-1]];
+  const A=XLSX.utils.sheet_to_json(ws,{header:1,raw:true}); let dc=-1;
+  for(const row of A){ for(let i=0;i<row.length;i++){const s=(''+(row[i]==null?'':row[i])).toUpperCase().trim(); if(s.includes('REDEEMED')&&s.includes('DATE')){dc=i;break;}} if(dc>=0)break; }
+  if(dc<0) return '';
+  const cnt={};
+  A.forEach(row=>{const v=row[dc]; let d=null;
+    if(typeof v==='number'){ d=new Date(Date.UTC(1899,11,30)+v*86400000); }
+    else if(typeof v==='string'){ const t=Date.parse(v); if(!isNaN(t)) d=new Date(t); }
+    if(d&&!isNaN(d.getTime())){ const k=d.getUTCFullYear()+String(d.getUTCMonth()+1).padStart(2,'0'); cnt[k]=(cnt[k]||0)+1; }});
+  let best='',bc=0; for(const k in cnt){ if(cnt[k]>bc){bc=cnt[k]; best=k;} }
+  return best;
+}
 function parseStateSof(wb){
-  stateSof={}; sofImported=true;
+  stateSof={}; sofImported=true; sofPeriod=detectPeriod(wb);
   const ws=wb.Sheets[wb.SheetNames.find(n=>/detail/i.test(n))||wb.SheetNames[wb.SheetNames.length-1]];
   const A=XLSX.utils.sheet_to_json(ws,{header:1,raw:true});
   let upcI=-1,unitI=-1;
@@ -381,9 +407,12 @@ function renderStep2(){
   html += sofImported
     ? `<div class="banner ok"><div>State Order data substituted - <b>${fmtN(meadU)}</b> inflated units quarantined, <b>${fmtN(stU)}</b> State units applied. Final billable units: <b>${fmtN(grand.units)}</b>.</div></div>`
     : `<div class="banner warn"><div><b>${ctl.length} State Order (SOF) product(s)</b> detected at powder-level pricing (${fmtN(meadU)} units). Add the State report below to substitute the authoritative counts - or skip to keep the redemptions as-is.</div></div>`;
-  html += `<div class="drops" style="grid-template-columns:1fr;margin-top:16px"><label class="drop" id="dropSof" tabindex="0" role="button" aria-label="Upload State Order data">
+  if(sofMismatch){
+    html += `<div class="banner bad"><div><b>Date mismatch.</b> The State Order report you uploaded is for <b>${fmtPer(sofPeriod)||'an undetermined month'}</b>, but Step 1 is calculating <b>${fmtPer(period)}</b>. The file was not applied. Upload the State Order report for <b>${fmtPer(period)}</b> to continue.</div></div>`;
+  }
+  html += `<div class="drops" style="grid-template-columns:1fr;margin-top:16px"><label class="drop${sofMismatch?' error':''}" id="dropSof" tabindex="0" role="button" aria-label="Upload State Order data">
     <span class="chk"></span><div class="dtag optional">Optional - State Order (SOF)</div>
-    <h4>State Order (SOF) Data</h4><p>State MIS report to substitute SOF lines (.xls/.xlsx)</p><div class="fn" id="fnSof"></div>
+    <h4>State Order (SOF) Data</h4><p>State MIS report to substitute SOF lines (.xls/.xlsx)</p><div class="fn" id="fnSof">${sofMismatch?(fNames.sof+' - '+(fmtPer(sofPeriod)||'wrong month')):''}</div>
     <input type="file" id="inSof" accept=".xlsx,.xls"></label></div>`;
   let rows='';
   ctl.sort().forEach(u=>{const p=PMAP[u];const m=sofMead[u];const su=stateSof[u]!=null?stateSof[u]:null;
@@ -394,6 +423,12 @@ function renderStep2(){
   // wire the freshly-added SOF drop
   wireDrop('dropSof','inSof','fnSof',['.xlsx','.xls'],async f=>{
     fNames.sof=f.name; const wb=await readWB(f); parseStateSof(wb);
+    if(period && sofPeriod && sofPeriod!==period){
+      sofMismatch=true; sofImported=false; stateSof={};
+      recompute(); track('sof-month-mismatch','SOF month mismatch');
+      toast('State Order report month does not match Step 1',true); return;
+    }
+    sofMismatch=false;
     recompute(); const n=Object.keys(stateSof).length; toast(n?`State SOF imported (${n} product${n>1?'s':''})`:'No SOF lines found',!n);
   });
 }
