@@ -528,10 +528,10 @@ $('#btnPdf').addEventListener('click',()=>{
   doc.setFillColor(27,41,78); doc.rect(40,ty,300,26,'F');
   doc.setFont('helvetica','bold');doc.setFontSize(13);doc.setTextColor(255,255,255);
   doc.text('Infant Formula Rebate Report - '+perLabel, 52, ty+17.5);
-  const body=summaryRows.map(x=>[period, x.name, x.form, x.size, fmtN(x.units), '$'+x.rate.toFixed(3), fmt$(x.amount)]);
+  const body=summaryRows.map(x=>[period, x.name, x.form, x.size, (x.units===0?'-':fmtN(x.units)), '$'+x.rate.toFixed(3), fmt$(x.amount)]);
   doc.autoTable({startY:ty+34,
     head:[['REDEMPTION PERIOD','FORMULA NAME','FORM TYPE','SIZE','BILLABLE UNITS','BILLING RATE','BILLABLE AMOUNT']],
-    body, foot:[['Grand Total','','','',fmtN(grand.units),'',fmt$(grand.amount)]],
+    body, foot:[['Grand Total','','','',(grand.units===0?'-':fmtN(grand.units)),'',fmt$(grand.amount)]],
     theme:'grid', styles:{fontSize:9,cellPadding:4,lineColor:[210,222,228],lineWidth:0.5},
     headStyles:{fillColor:[27,41,78],textColor:255,fontStyle:'bold',halign:'left',valign:'middle'},
     footStyles:{fillColor:[234,246,252],textColor:[15,94,140],fontStyle:'bold'},
