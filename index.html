@@ -202,8 +202,9 @@ const PRODUCTS=[
  {upc:'0300875111321',name:'ENFAMIL REGULINE',form:'POWDER',size:'12.4 oz',cat:'21',sub:'101',rate:17.477}];
 const PMAP={}; PRODUCTS.forEach(p=>PMAP[p.upc]=p);
 const SOF_STATE_ALIAS={'0300875105238':'0300871464414'};
-const sofThreshold=8.0;
-const isSofProduct=u=>{const p=PMAP[u];return !!(p&&p.form==='READY TO USE'&&p.size==='2 oz 6 pack');};
+/* State Ordered Formula UPCs (manufacturer/MID space). State report UPCs map here via SOF_STATE_ALIAS. */
+const SOF_UPCS=new Set(['0300875120583','0300875121290','0300871464414']);
+const isSofProduct=u=>SOF_UPCS.has(SOF_STATE_ALIAS[u]||u);
 
 let midRows=[], byUpc={}, period='', perLabel='';
 let summaryRows=[], grand={units:0,amount:0}, grandRaw={units:0,amount:0};
@@ -245,7 +246,7 @@ function parseMID(text){
 }
 function calculate(){
   byUpc={}; sofMead={}; sofCtl={}; const months={};
-  midRows.forEach(r=>{ if(isSofProduct(r.upc)&&r.qty&&(r.amount/r.qty)>sofThreshold) sofCtl[r.upc]=true; });
+  midRows.forEach(r=>{ if(isSofProduct(r.upc)) sofCtl[r.upc]=true; });
   midRows.forEach(r=>{
     if(r.redeemed.length===8){const m=r.redeemed.slice(0,6);months[m]=(months[m]||0)+1;}
     const p=PMAP[r.upc],rate=p?p.rate:0;
@@ -536,6 +537,12 @@ $('#btnXlsx').addEventListener('click',async ()=>{
     d.getCell(dr,6).value=r.name; d.getCell(dr,7).value=r.units; d.getCell(dr,8).value=r.rate;
     const di=d.getCell(dr,9); di.value=+(r.units*r.rate).toFixed(4); di.numFmt='"$"#,##0.0000';
     [1,2,3,4,5,6,7,8,9].forEach(cc=>d.getCell(dr,cc).font={italic:true,color:{argb:'FF9A5B00'}}); dr++;});
+  /* Grand Total on the detail, reconciled to the SUMMARY grand total */
+  const dg=dr;
+  d.getCell(dg,6).value='Grand Total'; d.getCell(dg,6).font={bold:true}; d.getCell(dg,6).alignment={horizontal:'right'};
+  const dgu=d.getCell(dg,7); dgu.value=grand.units; dgu.numFmt=UFMT; dgu.font={bold:true};
+  const dga=d.getCell(dg,9); dga.value=grand.amount; dga.numFmt='"$"#,##0.00'; dga.font={bold:true};
+  for(let c=1;c<=9;c++){const cl=d.getCell(dg,c); cl.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFEAEFF6'}}; cl.border={top:{style:'medium',color:{argb:'FF1B294E'}}};}
   const buf=await wb.xlsx.writeBuffer();
   const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=xlsxName(); a.click();
